@@ -26,7 +26,7 @@ def login():
 
 @app.route("/")
 def home():
-    return "✅ Flask + MongoDB backend running on Railway!"
+    return "Flask + MongoDB backend running on Railway!"
 
 
 if __name__ == "__main__":
