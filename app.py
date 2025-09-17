@@ -37,40 +37,29 @@ def login():
         return jsonify({"success": False})
 
 
-@app.route("/api/event", methods=["POST"])
+@app.route("/api/event", methods=["POST", "OPTIONS"])
 def log_event():
-    """
-    Receive video events and store them into user's `videos` array
-    """
-    data = request.json
-    events = data.get("events", [])
+    if request.method == "OPTIONS":
+        return _build_cors_prelight_response()
 
+    payload = request.json or {}
+
+    # Expecting { events: [...] }
+    events = payload.get("events")
     if not events or not isinstance(events, list):
-        return jsonify({"success": False, "error": "Invalid events payload"}), 400
+        return jsonify({"success": False, "error": "Missing events array"}), 400
 
-    for event in events:
-        username = event.get("username")
-        if not username:
-            continue
-
-        # Prepare a clean video record
-        video_entry = {
-            "videoId": event.get("videoId"),
-            "url": event.get("url"),
-            "length": event.get("length"),            # total length of video
-            "watchedTime": event.get("watchedTime"),  # how much time user watched
-            "keystroke": event.get("keystroke"),      # key pressed by the user
-            "action": event.get("action"),            # play, pause, finish, etc
-            "timestamp": datetime.utcnow()
-        }
-
-        # Push event into the user's `videos` array
-        users.update_one(
-            {"username": username},
-            {"$push": {"videos": video_entry}}
-        )
-
-    return jsonify({"success": True})
+    try:
+        # Insert each event into MongoDB logs collection
+        for evt in events:
+            logs.insert_one({
+                "username": evt.get("username", "unknown"),
+                "event": evt,
+                "timestamp": evt.get("timestamp") or datetime.utcnow()
+            })
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.after_request
