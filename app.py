@@ -6,7 +6,7 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 
-# Allow CORS for all routes (all origins allowed)
+# Allow CORS for all routes
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # Mongo connection
@@ -16,7 +16,6 @@ db = client.get_database()  # uses "test"
 
 users = db["users"]
 logs = db["logs"]
-
 
 @app.route("/login", methods=["POST", "OPTIONS"])
 def login():
@@ -35,7 +34,6 @@ def login():
         return jsonify({"success": True})
     else:
         return jsonify({"success": False})
-
 
 @app.route("/api/event", methods=["POST", "OPTIONS"])
 def log_event():
@@ -57,22 +55,14 @@ def log_event():
 
     return jsonify({"success": True})
 
-
 @app.after_request
 def add_cors_headers(response):
-    """
-    Ensure every response has CORS headers
-    """
     response.headers.add("Access-Control-Allow-Origin", "*")
     response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     return response
 
-
 def _build_cors_prelight_response():
-    """
-    Properly respond to OPTIONS preflight requests
-    """
     response = make_response()
     response.headers.add("Access-Control-Allow-Origin", "*")
     response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
@@ -80,11 +70,10 @@ def _build_cors_prelight_response():
     response.status_code = 200
     return response
 
-
 @app.route("/")
 def home():
     return "Flask + MongoDB backend running with 'test' database."
 
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))  # Railway fix: use $PORT
+    app.run(host="0.0.0.0", port=port)
