@@ -42,24 +42,20 @@ def log_event():
     if request.method == "OPTIONS":
         return _build_cors_prelight_response()
 
-    payload = request.json or {}
+    data = request.json or {}
+    username = data.get("username")
+    event = data.get("event")
 
-    # Expecting { events: [...] }
-    events = payload.get("events")
-    if not events or not isinstance(events, list):
-        return jsonify({"success": False, "error": "Missing events array"}), 400
+    if not username or not event:
+        return jsonify({"success": False, "error": "Missing username or event"}), 400
 
-    try:
-        # Insert each event into MongoDB logs collection
-        for evt in events:
-            logs.insert_one({
-                "username": evt.get("username", "unknown"),
-                "event": evt,
-                "timestamp": evt.get("timestamp") or datetime.utcnow()
-            })
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    logs.insert_one({
+        "username": username,
+        "event": event,
+        "timestamp": datetime.utcnow()
+    })
+
+    return jsonify({"success": True})
 
 
 @app.after_request
