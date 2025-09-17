@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from flask_cors import CORS
 
@@ -12,17 +12,18 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 # Mongo connection
 MONGO_URI = os.getenv("MONGO_URI") or "mongodb+srv://admin:ahmad@cluster0.oyvzkiz.mongodb.net/test?retryWrites=true&w=majority&appName=Cluster0"
 client = MongoClient(MONGO_URI)
-db = client.get_database()  # uses "test"
+db = client["test"]  # use your existing "test" database
 
+# Users collection
 users = db["users"]
-logs = db["logs"]
 
-@app.route("/login", methods=["POST", "OPTIONS"])
+
+@app.route("/login", methods=["POST"])
 def login():
-    if request.method == "OPTIONS":
-        return _build_cors_prelight_response()
-
-    data = request.json or {}
+    """
+    Login check
+    """
+    data = request.json
     username = data.get("username")
     password = data.get("password")
 
@@ -35,45 +36,59 @@ def login():
     else:
         return jsonify({"success": False})
 
-@app.route("/api/event", methods=["POST", "OPTIONS"])
+
+@app.route("/api/event", methods=["POST"])
 def log_event():
-    if request.method == "OPTIONS":
-        return _build_cors_prelight_response()
+    """
+    Receive video events and store them into user's `videos` array
+    """
+    data = request.json
+    events = data.get("events", [])
 
-    data = request.json or {}
-    username = data.get("username")
-    event = data.get("event")
+    if not events or not isinstance(events, list):
+        return jsonify({"success": False, "error": "Invalid events payload"}), 400
 
-    if not username or not event:
-        return jsonify({"success": False, "error": "Missing username or event"}), 400
+    for event in events:
+        username = event.get("username")
+        if not username:
+            continue
 
-    logs.insert_one({
-        "username": username,
-        "event": event,
-        "timestamp": datetime.utcnow()
-    })
+        # Prepare a clean video record
+        video_entry = {
+            "videoId": event.get("videoId"),
+            "url": event.get("url"),
+            "length": event.get("length"),            # total length of video
+            "watchedTime": event.get("watchedTime"),  # how much time user watched
+            "keystroke": event.get("keystroke"),      # key pressed by the user
+            "action": event.get("action"),            # play, pause, finish, etc
+            "timestamp": datetime.utcnow()
+        }
+
+        # Push event into the user's `videos` array
+        users.update_one(
+            {"username": username},
+            {"$push": {"videos": video_entry}}
+        )
 
     return jsonify({"success": True})
 
+
 @app.after_request
-def add_cors_headers(response):
+def after_request(response):
+    """
+    Ensure all responses include proper CORS headers
+    """
     response.headers.add("Access-Control-Allow-Origin", "*")
     response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     return response
 
-def _build_cors_prelight_response():
-    response = make_response()
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-    response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-    response.status_code = 200
-    return response
 
 @app.route("/")
 def home():
-    return "Flask + MongoDB backend running with 'test' database."
+    return "Flask + MongoDB backend running on Railway!"
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # Railway fix: use $PORT
+    port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
