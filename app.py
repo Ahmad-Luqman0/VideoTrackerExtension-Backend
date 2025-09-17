@@ -6,20 +6,36 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Railway stores Mongo URI in env
+# --- MongoDB Connection ---
 MONGO_URI = os.getenv("MONGO_URI")
+
+if not MONGO_URI:
+    raise ValueError("❌ MONGO_URI environment variable not set in Railway!")
+
 client = MongoClient(MONGO_URI)
-db = client.test
-users = db.users
+db = client.test   # default DB
+users = db.users   # users collection
+
+
+# --- Routes ---
+
+@app.route("/")
+def home():
+    return "✅ Flask + MongoDB backend running on Railway!"
 
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.json
+    """Simple username/password login."""
+    data = request.json or {}
     username = data.get("username")
     password = data.get("password")
 
-    if users.find_one({"username": username, "password": password}):
+    if not username or not password:
+        return jsonify({"success": False, "error": "Missing username or password"}), 400
+
+    user = users.find_one({"username": username, "password": password})
+    if user:
         return jsonify({"success": True})
     else:
         return jsonify({"success": False})
@@ -27,7 +43,8 @@ def login():
 
 @app.route("/log_video", methods=["POST"])
 def log_video():
-    data = request.json
+    """Log finalized video data for a given user."""
+    data = request.json or {}
     username = data.get("username")
     video_entry = {
         "videoId": data.get("videoId"),
@@ -37,22 +54,26 @@ def log_video():
         "keys": data.get("keys", [])
     }
 
+    # Validate required fields
     if not username or not video_entry["videoId"]:
         return jsonify({"success": False, "error": "Missing username or videoId"}), 400
 
-    # Push video entry into the user document
+    # Ensure user exists
+    user = users.find_one({"username": username})
+    if not user:
+        return jsonify({"success": False, "error": "User not found"}), 404
+
+    # Push video entry into the user's videos array
     users.update_one(
         {"username": username},
         {"$push": {"videos": video_entry}}
     )
 
-    return jsonify({"success": True})
+    return jsonify({"success": True, "message": "Video logged"})
 
 
-@app.route("/")
-def home():
-    return "Flask + MongoDB backend running on Railway!"
-
-
+# --- Run Locally ---
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    # Railway sets PORT env variable automatically
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
