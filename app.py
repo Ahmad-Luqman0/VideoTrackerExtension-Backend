@@ -10,7 +10,7 @@ CORS(app)
 MONGO_URI = os.getenv("MONGO_URI")
 
 if not MONGO_URI:
-    raise ValueError("❌ MONGO_URI environment variable not set in Railway!")
+    raise ValueError("MONGO_URI environment variable not set in Railway!")
 
 client = MongoClient(MONGO_URI)
 db = client.test   # default DB
@@ -21,7 +21,7 @@ users = db.users   # users collection
 
 @app.route("/")
 def home():
-    return "✅ Flask + MongoDB backend running on Railway!"
+    return "Flask + MongoDB backend running on Railway!"
 
 
 @app.route("/login", methods=["POST"])
