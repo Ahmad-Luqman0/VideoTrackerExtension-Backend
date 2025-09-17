@@ -6,45 +6,33 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# --- MongoDB Connection ---
+# Railway provides MONGO_URI in environment variables
 MONGO_URI = os.getenv("MONGO_URI")
-
 if not MONGO_URI:
-    raise ValueError("MONGO_URI environment variable not set in Railway!")
+    raise Exception("❌ MONGO_URI is not set in Railway environment variables")
 
 client = MongoClient(MONGO_URI)
-db = client.test   # default DB
-users = db.users   # users collection
+db = client.test
+users = db.users
 
-
-# --- Routes ---
-
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return "Flask + MongoDB backend running on Railway!"
-
+    return "✅ Flask + MongoDB backend running on Railway!"
 
 @app.route("/login", methods=["POST"])
 def login():
-    """Simple username/password login."""
-    data = request.json or {}
+    data = request.json
     username = data.get("username")
     password = data.get("password")
 
-    if not username or not password:
-        return jsonify({"success": False, "error": "Missing username or password"}), 400
-
-    user = users.find_one({"username": username, "password": password})
-    if user:
+    if users.find_one({"username": username, "password": password}):
         return jsonify({"success": True})
     else:
         return jsonify({"success": False})
 
-
 @app.route("/log_video", methods=["POST"])
 def log_video():
-    """Log finalized video data for a given user."""
-    data = request.json or {}
+    data = request.json
     username = data.get("username")
     video_entry = {
         "videoId": data.get("videoId"),
@@ -54,14 +42,8 @@ def log_video():
         "keys": data.get("keys", [])
     }
 
-    # Validate required fields
     if not username or not video_entry["videoId"]:
         return jsonify({"success": False, "error": "Missing username or videoId"}), 400
-
-    # Ensure user exists
-    user = users.find_one({"username": username})
-    if not user:
-        return jsonify({"success": False, "error": "User not found"}), 404
 
     # Push video entry into the user's videos array
     users.update_one(
@@ -71,9 +53,7 @@ def log_video():
 
     return jsonify({"success": True, "message": "Video logged"})
 
-
-# --- Run Locally ---
 if __name__ == "__main__":
-    # Railway sets PORT env variable automatically
+    # Railway provides PORT in env automatically
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
