@@ -52,13 +52,18 @@ def logout():
 # --- LOG VIDEO (append into session.videos[]) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
+    from bson import ObjectId
+
     data = request.json
     session_id = data.get("session_id")
-
     if not session_id:
-        return jsonify({"success": False, "error": "Missing session_id"})
+        return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    from bson import ObjectId
+    try:
+        oid = ObjectId(session_id)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid session_id"}), 400
+
     video_entry = {
         "videoId": data.get("videoId"),
         "duration": data.get("duration"),
@@ -67,10 +72,14 @@ def log_video():
         "keys": data.get("keys", [])
     }
 
-    sessions.update_one(
-        {"_id": ObjectId(session_id)},
+    result = sessions.update_one(
+        {"_id": oid},
         {"$push": {"videos": video_entry}}
     )
+
+    if result.modified_count == 0:
+        return jsonify({"success": False, "error": "Session not found"}), 404
+
     return jsonify({"success": True, "video": video_entry})
 
 @app.route("/")
