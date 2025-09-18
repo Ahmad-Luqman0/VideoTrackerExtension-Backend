@@ -1,8 +1,9 @@
-import os
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from flask_cors import CORS
 from datetime import datetime
+import os
+from bson import ObjectId
+from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
@@ -10,50 +11,59 @@ CORS(app)
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client.test
-users = db.users  # still holds users
-sessions = db.sessions  # new collection for sessions
+users = db.users  # only this collection
 
-# --- LOGIN (Start session) ---
+# --- LOGIN (create new session for the user) ---
 @app.route("/login", methods=["POST"])
 def login():
     data = request.json
     username = data.get("username")
     password = data.get("password")
 
-    if users.find_one({"username": username, "password": password}):
-        # create new session doc
-        session = {
-            "username": username,
-            "password": password,  # ⚠️ optional, usually shouldn't store plaintext
-            "starttime": datetime.utcnow(),
-            "endtime": None,
-            "videos": []
-        }
-        session_id = sessions.insert_one(session).inserted_id
-        return jsonify({"success": True, "session_id": str(session_id)})
-    else:
-        return jsonify({"success": False})
+    user = users.find_one({"username": username, "password": password})
+    if not user:
+        return jsonify({"success": False}), 401
 
-# --- LOGOUT (End session) ---
+    # build a new session
+    session = {
+        "_id": ObjectId(),        # unique session ID
+        "starttime": datetime.utcnow(),
+        "endtime": None,
+        "videos": []
+    }
+
+    users.update_one(
+        {"_id": user["_id"]},
+        {"$push": {"sessions": session}}
+    )
+
+    return jsonify({"success": True, "session_id": str(session["_id"])})
+    
+
+# --- LOGOUT (set endtime on last session) ---
 @app.route("/logout", methods=["POST"])
 def logout():
     data = request.json
     session_id = data.get("session_id")
+    if not session_id:
+        return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    if session_id:
-        from bson import ObjectId
-        sessions.update_one(
-            {"_id": ObjectId(session_id)},
-            {"$set": {"endtime": datetime.utcnow()}}
-        )
-        return jsonify({"success": True})
-    return jsonify({"success": False, "error": "Missing session_id"})
+    try:
+        oid = ObjectId(session_id)
+    except Exception:
+        return jsonify({"success": False, "error": "Invalid session_id"}), 400
 
-# --- LOG VIDEO (append into session.videos[]) ---
+    users.update_one(
+        {"sessions._id": oid},
+        {"$set": {"sessions.$.endtime": datetime.utcnow()}}
+    )
+
+    return jsonify({"success": True})
+
+
+# --- LOG VIDEO (push into correct user's session) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
-    from bson import ObjectId
-
     data = request.json
     session_id = data.get("session_id")
     if not session_id:
@@ -72,19 +82,12 @@ def log_video():
         "keys": data.get("keys", [])
     }
 
-    result = sessions.update_one(
-        {"_id": oid},
-        {"$push": {"videos": video_entry}}
+    result = users.update_one(
+        {"sessions._id": oid},
+        {"$push": {"sessions.$.videos": video_entry}}
     )
 
     if result.modified_count == 0:
         return jsonify({"success": False, "error": "Session not found"}), 404
 
     return jsonify({"success": True, "video": video_entry})
-
-@app.route("/")
-def home():
-    return "✅ Flask + MongoDB backend running on Railway!"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
