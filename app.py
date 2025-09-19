@@ -30,7 +30,7 @@ def login():
         "_id": ObjectId(),  # unique session ID
         "starttime": datetime.utcnow(),
         "endtime": None,
-        "duration": None,  # add duration field
+        "duration": None,
         "videos": [],
         "inactivity": [],
     }
@@ -126,12 +126,63 @@ def log_inactivity():
         "type": data.get("type"),
     }
 
+    # Push inactivity log
     result = users.update_one(
         {"sessions._id": oid}, {"$push": {"sessions.$.inactivity": inactivity_entry}}
     )
 
     if result.modified_count == 0:
         return jsonify({"success": False, "error": "Session not found"}), 404
+
+    # --- Check inactivity duration ---
+    try:
+        inactivity_duration = float(inactivity_entry.get("duration", 0))
+    except Exception:
+        inactivity_duration = 0
+
+    if inactivity_duration > 180:  # more than 3 minutes
+        # End current session
+        user = users.find_one({"sessions._id": oid}, {"sessions.$": 1, "_id": 1})
+        if user and "sessions" in user and len(user["sessions"]) > 0:
+            session = user["sessions"][0]
+            starttime = session.get("starttime")
+            endtime = datetime.utcnow()
+            duration = None
+            if starttime:
+                duration = (endtime - starttime).total_seconds()
+
+            users.update_one(
+                {"sessions._id": oid},
+                {
+                    "$set": {
+                        "sessions.$.endtime": endtime,
+                        "sessions.$.duration": duration,
+                    }
+                },
+            )
+
+            # Create a new session (start after inactivity ends)
+            new_session = {
+                "_id": ObjectId(),
+                "starttime": endtime,
+                "endtime": None,
+                "duration": None,
+                "videos": [],
+                "inactivity": [],
+            }
+
+            users.update_one(
+                {"_id": user["_id"]}, {"$push": {"sessions": new_session}}
+            )
+
+            return jsonify(
+                {
+                    "success": True,
+                    "inactivity": inactivity_entry,
+                    "action": "session_split",
+                    "new_session_id": str(new_session["_id"]),
+                }
+            )
 
     return jsonify({"success": True, "inactivity": inactivity_entry})
 
