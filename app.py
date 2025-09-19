@@ -4,8 +4,6 @@ from datetime import datetime
 import os
 from bson import ObjectId
 from flask_cors import CORS
-from datetime import datetime, timezone
-
 
 app = Flask(__name__)
 CORS(app)
@@ -30,7 +28,7 @@ def login():
     # build a new session
     session = {
         "_id": ObjectId(),  # unique session ID
-        "starttime": datetime.now(timezone.utc),
+        "starttime": datetime.utcnow(),
         "endtime": None,
         "duration": None,
         "videos": [],
@@ -62,7 +60,7 @@ def logout():
 
     session = user["sessions"][0]
     starttime = session.get("starttime")
-    endtime = datetime.now(timezone.utc)
+    endtime = datetime.utcnow()
     duration = None
     if starttime:
         duration = (endtime - starttime).total_seconds()
@@ -142,13 +140,13 @@ def log_inactivity():
     except Exception:
         inactivity_duration = 0
 
-    if inactivity_duration > 180:  
+    if inactivity_duration > 180:  # more than 3 minutes
         # End current session
         user = users.find_one({"sessions._id": oid}, {"sessions.$": 1, "_id": 1})
         if user and "sessions" in user and len(user["sessions"]) > 0:
             session = user["sessions"][0]
             starttime = session.get("starttime")
-            endtime = datetime.now(timezone.utc)
+            endtime = datetime.utcnow()
             duration = None
             if starttime:
                 duration = (endtime - starttime).total_seconds()
