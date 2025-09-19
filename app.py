@@ -28,7 +28,7 @@ def login():
     # build a new session
     session = {
         "_id": ObjectId(),  # unique session ID
-        "starttime": datetime.utcnow(),
+        "starttime": datetime.now(timezone.utc),
         "endtime": None,
         "duration": None,
         "videos": [],
@@ -60,7 +60,7 @@ def logout():
 
     session = user["sessions"][0]
     starttime = session.get("starttime")
-    endtime = datetime.utcnow()
+    endtime = datetime.now(timezone.utc)
     duration = None
     if starttime:
         duration = (endtime - starttime).total_seconds()
