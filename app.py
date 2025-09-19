@@ -148,7 +148,7 @@ def log_inactivity():
         if user and "sessions" in user and len(user["sessions"]) > 0:
             session = user["sessions"][0]
             starttime = session.get("starttime")
-            endtime = datetime.utcnow()
+            endtime = datetime.now(timezone.utc)
             duration = None
             if starttime:
                 duration = (endtime - starttime).total_seconds()
