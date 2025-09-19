@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from bson import ObjectId
 from flask_cors import CORS
@@ -28,7 +28,7 @@ def login():
     # build a new session
     session = {
         "_id": ObjectId(),  # unique session ID
-        "starttime": datetime.utcnow(),
+        "starttime": datetime.now(timezone.utc),
         "endtime": None,
         "duration": None,
         "videos": [],
@@ -60,7 +60,7 @@ def logout():
 
     session = user["sessions"][0]
     starttime = session.get("starttime")
-    endtime = datetime.utcnow()
+    endtime = datetime.now(timezone.utc)
     duration = None
     if starttime:
         duration = (endtime - starttime).total_seconds()
@@ -146,7 +146,7 @@ def log_inactivity():
         if user and "sessions" in user and len(user["sessions"]) > 0:
             session = user["sessions"][0]
             starttime = session.get("starttime")
-            endtime = datetime.utcnow()
+            endtime = datetime.now(timezone.utc)
             duration = None
             if starttime:
                 duration = (endtime - starttime).total_seconds()
