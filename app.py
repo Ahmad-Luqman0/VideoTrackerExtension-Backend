@@ -4,9 +4,15 @@ from datetime import datetime
 import os
 from bson import ObjectId
 from flask_cors import CORS
+from datetime import datetime
+from zoneinfo import ZoneInfo  
+
 
 app = Flask(__name__)
 CORS(app)
+
+timezone = ZoneInfo("Asia/Karachi")
+
 
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
@@ -27,7 +33,7 @@ def login():
     # build a new session
     session = {
         "_id": ObjectId(),        # unique session ID
-        "starttime": datetime.utcnow(),
+        "starttime": datetime.now(pk_timezone),   
         "endtime": None,
         "videos": []
     }
