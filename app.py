@@ -8,10 +8,11 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client.test
-users = db.users  # only this collection
+users = db.users
+
 
 # --- LOGIN (create new session for the user) ---
 @app.route("/login", methods=["POST"])
