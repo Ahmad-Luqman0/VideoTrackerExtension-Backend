@@ -136,7 +136,7 @@ def log_inactivity():
 # --- ROOT ROUTE ---
 @app.route("/")
 def home():
-    return jsonify({"message": "Backend is running 🚀"})
+    return jsonify({"message": "Backend is running "})
 
 
 if __name__ == "__main__":
