@@ -140,7 +140,7 @@ def log_inactivity():
     except Exception:
         inactivity_duration = 0
 
-    if inactivity_duration > 180:  # more than 3 minutes
+    if inactivity_duration > 180:  
         # End current session
         user = users.find_one({"sessions._id": oid}, {"sessions.$": 1, "_id": 1})
         if user and "sessions" in user and len(user["sessions"]) > 0:
