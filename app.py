@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from bson import ObjectId
 from flask_cors import CORS
@@ -8,7 +8,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 client = MongoClient(MONGO_URI)
 db = client.test
 users = db.users  # only this collection
@@ -22,16 +22,29 @@ def login():
 
     user = users.find_one({"username": username, "password": password})
     if not user:
-        return jsonify({"success": False}), 401
+        return jsonify({"error": "Invalid credentials"}), 401
 
-    # build a new session
+    # Close any unfinished session
+    if user.get("sessions"):
+        last_session = user["sessions"][-1]
+        if last_session.get("endtime") is None:
+            users.update_one(
+                {"_id": user["_id"], "sessions._id": last_session["_id"]},
+                {"$set": {
+                    "sessions.$.endtime": datetime.utcnow(),
+                    "sessions.$.duration": (
+                        datetime.utcnow() - last_session["starttime"]
+                    ).total_seconds()
+                }}
+            )
+
+    # Create a new session
     session = {
-        "_id": ObjectId(),        # unique session ID
+        "_id": ObjectId(),
         "starttime": datetime.utcnow(),
         "endtime": None,
-        "duration": None,         # add duration field
-        "videos": [],
-        "inactivity": []
+        "duration": None,
+        "videos": []
     }
 
     users.update_one(
@@ -39,107 +52,74 @@ def login():
         {"$push": {"sessions": session}}
     )
 
-    return jsonify({"success": True, "session_id": str(session["_id"])})
+    return jsonify({"message": "Login successful", "session_id": str(session["_id"])})
 
 
-# --- LOGOUT (set endtime + duration on last session) ---
-@app.route("/logout", methods=["POST"])
-def logout():
+# --- ACTIVITY (mouse/keyboard active) ---
+@app.route("/activity", methods=["POST"])
+def activity():
     data = request.json
-    session_id = data.get("session_id")
-    if not session_id:
-        return jsonify({"success": False, "error": "Missing session_id"}), 400
+    username = data.get("username")
+    activity_time = datetime.utcnow()
 
-    try:
-        oid = ObjectId(session_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid session_id"}), 400
+    user = users.find_one({"username": username})
+    if not user or not user.get("sessions"):
+        return jsonify({"error": "User not logged in"}), 400
 
-    # get session starttime first
-    user = users.find_one({"sessions._id": oid}, {"sessions.$": 1})
-    if not user or "sessions" not in user or len(user["sessions"]) == 0:
-        return jsonify({"success": False, "error": "Session not found"}), 404
+    last_session = user["sessions"][-1]
+    last_end = last_session.get("endtime")
 
-    session = user["sessions"][0]
-    starttime = session.get("starttime")
-    endtime = datetime.utcnow()
-    duration = None
-    if starttime:
-        duration = (endtime - starttime).total_seconds()
+    if last_end:
+        if activity_time - last_end > timedelta(minutes=3):            
+            if last_session.get("duration") is None:
+                duration = (last_end - last_session["starttime"]).total_seconds()
+                users.update_one(
+                    {"_id": user["_id"], "sessions._id": last_session["_id"]},
+                    {"$set": {"sessions.$.duration": duration}}
+                )
 
-    users.update_one(
-        {"sessions._id": oid},
-        {"$set": {
-            "sessions.$.endtime": endtime,
-            "sessions.$.duration": duration
-        }}
-    )
+            # start a new session
+            new_session = {
+                "_id": ObjectId(),
+                "starttime": activity_time,
+                "endtime": None,
+                "duration": None,
+                "videos": []
+            }
+            users.update_one(
+                {"_id": user["_id"]},
+                {"$push": {"sessions": new_session}}
+            )
+            return jsonify({"message": "New session started due to 2h inactivity"})
 
-    return jsonify({"success": True, "endtime": endtime.isoformat(), "duration": duration})
+    # else continue in current session (do nothing special)
+    return jsonify({"message": "Activity recorded"})
 
 
-# --- LOG VIDEO (push into correct user's session) ---
-@app.route("/log_video", methods=["POST"])
-def log_video():
+# --- INACTIVITY (blur or idle stop) ---
+@app.route("/inactivity", methods=["POST"])
+def inactivity():
     data = request.json
-    session_id = data.get("session_id")
-    if not session_id:
-        return jsonify({"success": False, "error": "Missing session_id"}), 400
+    username = data.get("username")
+    inactivity_time = datetime.utcnow()
 
-    try:
-        oid = ObjectId(session_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid session_id"}), 400
+    user = users.find_one({"username": username})
+    if not user or not user.get("sessions"):
+        return jsonify({"error": "User not logged in"}), 400
 
-    video_entry = {
-        "videoId": data.get("videoId"),
-        "duration": data.get("duration"),
-        "watched": data.get("watched"),
-        "status": data.get("status"),
-        "keys": data.get("keys", [])
-    }
+    last_session = user["sessions"][-1]
+    if last_session.get("endtime") is None:
+        duration = (inactivity_time - last_session["starttime"]).total_seconds()
+        users.update_one(
+            {"_id": user["_id"], "sessions._id": last_session["_id"]},
+            {"$set": {
+                "sessions.$.endtime": inactivity_time,
+                "sessions.$.duration": duration
+            }}
+        )
 
-    result = users.update_one(
-        {"sessions._id": oid},
-        {"$push": {"sessions.$.videos": video_entry}}
-    )
-
-    if result.modified_count == 0:
-        return jsonify({"success": False, "error": "Session not found"}), 404
-
-    return jsonify({"success": True, "video": video_entry})
-
-
-# --- LOG INACTIVITY (push inactivity events into session) ---
-@app.route("/log_inactivity", methods=["POST"])
-def log_inactivity():
-    data = request.json
-    session_id = data.get("session_id")
-    if not session_id:
-        return jsonify({"success": False, "error": "Missing session_id"}), 400
-
-    try:
-        oid = ObjectId(session_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid session_id"}), 400
-
-    inactivity_entry = {
-        "starttime": data.get("starttime"),
-        "endtime": data.get("endtime"),
-        "duration": data.get("duration"),
-        "type": data.get("type")
-    }
-
-    result = users.update_one(
-        {"sessions._id": oid},
-        {"$push": {"sessions.$.inactivity": inactivity_entry}}
-    )
-
-    if result.modified_count == 0:
-        return jsonify({"success": False, "error": "Session not found"}), 404
-
-    return jsonify({"success": True, "inactivity": inactivity_entry})
+    return jsonify({"message": "Session marked inactive"})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(debug=True)
