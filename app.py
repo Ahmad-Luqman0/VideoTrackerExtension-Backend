@@ -75,7 +75,7 @@ def logout():
     )
 
 
-# --- LOG VIDEO (Updated to handle duplicate videoIds) ---
+# --- LOG VIDEO (merge keys instead of overwrite) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -94,37 +94,49 @@ def log_video():
     if not isinstance(keys, list):
         keys = [keys] if keys else []
 
-    video_entry = {
-        "videoId": data.get("videoId"),
-        "duration": float(data.get("duration", 0)),
-        "watched": int(data.get("watched", 0)),
-        "status": data.get("status", "Not Watched"),
-        "keys": keys,
-    }
+    video_id = data.get("videoId")
+    duration = float(data.get("duration", 0))
+    watched = int(data.get("watched", 0))
+    status = data.get("status", "Not Watched")
 
-    # Check if video already exists in the session
+    # Try to update existing video in the session
     result = users.update_one(
-        {"sessions._id": oid, "sessions.videos.videoId": video_entry["videoId"]},
-        {"$set": {
-            "sessions.$.videos.$[video].duration": video_entry["duration"],
-            "sessions.$.videos.$[video].watched": video_entry["watched"],
-            "sessions.$.videos.$[video].status": video_entry["status"],
-            "sessions.$.videos.$[video].keys": video_entry["keys"]
-        }},
-        array_filters=[{"video.videoId": video_entry["videoId"]}]
+        {"sessions._id": oid, "sessions.videos.videoId": video_id},
+        {
+            "$set": {
+                "sessions.$.videos.$[video].duration": duration,
+                "sessions.$.videos.$[video].watched": watched,
+                "sessions.$.videos.$[video].status": status,
+            },
+            "$addToSet": {"sessions.$.videos.$[video].keys": {"$each": keys}}
+        },
+        array_filters=[{"video.videoId": video_id}]
     )
 
-    # If the video is not found in the session, add it
+    # If the video was not found in the session, push a new one
     if result.matched_count == 0:
-        result = users.update_one(
+        video_entry = {
+            "videoId": video_id,
+            "duration": duration,
+            "watched": watched,
+            "status": status,
+            "keys": keys,
+        }
+        users.update_one(
             {"sessions._id": oid},
             {"$push": {"sessions.$.videos": video_entry}}
         )
+        return jsonify({"success": True, "video": video_entry})
 
-    if result.modified_count == 0:
-        return jsonify({"success": False, "error": "Session not found"}), 404
-
-    return jsonify({"success": True, "video": video_entry})
+    # Return updated video
+    updated_video = {
+        "videoId": video_id,
+        "duration": duration,
+        "watched": watched,
+        "status": status,
+        "keys": keys,
+    }
+    return jsonify({"success": True, "video": updated_video})
 
 
 # --- LOG INACTIVITY (push inactivity events into session) ---
