@@ -13,6 +13,9 @@ client = MongoClient(MONGO_URI)
 db = client.test
 users = db.users
 
+@app.route("/", methods=["GET"])
+def home():
+    return "BackEnd Running  :)"
 
 # --- LOGIN (create new session for the user) ---
 @app.route("/login", methods=["POST"])
