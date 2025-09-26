@@ -75,11 +75,12 @@ def logout():
     )
 
 
-# --- LOG VIDEO (push into correct user's session) ---
+# --- LOG VIDEO (Updated to handle duplicate videoIds) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
     session_id = data.get("session_id")
+
     if not session_id:
         return jsonify({"success": False, "error": "Missing session_id"}), 400
 
@@ -88,17 +89,37 @@ def log_video():
     except Exception:
         return jsonify({"success": False, "error": "Invalid session_id"}), 400
 
+    # Always store keys as list
+    keys = data.get("keys")
+    if not isinstance(keys, list):
+        keys = [keys] if keys else []
+
     video_entry = {
         "videoId": data.get("videoId"),
-        "duration": data.get("duration"),
-        "watched": data.get("watched"),
-        "status": data.get("status"),
-        "keys": data.get("keys", []),
+        "duration": float(data.get("duration", 0)),
+        "watched": int(data.get("watched", 0)),
+        "status": data.get("status", "Not Watched"),
+        "keys": keys,
     }
 
+    # Check if video already exists in the session
     result = users.update_one(
-        {"sessions._id": oid}, {"$push": {"sessions.$.videos": video_entry}}
+        {"sessions._id": oid, "sessions.videos.videoId": video_entry["videoId"]},
+        {"$set": {
+            "sessions.$.videos.$[video].duration": video_entry["duration"],
+            "sessions.$.videos.$[video].watched": video_entry["watched"],
+            "sessions.$.videos.$[video].status": video_entry["status"],
+            "sessions.$.videos.$[video].keys": video_entry["keys"]
+        }},
+        array_filters=[{"video.videoId": video_entry["videoId"]}]
     )
+
+    # If the video is not found in the session, add it
+    if result.matched_count == 0:
+        result = users.update_one(
+            {"sessions._id": oid},
+            {"$push": {"sessions.$.videos": video_entry}}
+        )
 
     if result.modified_count == 0:
         return jsonify({"success": False, "error": "Session not found"}), 404
@@ -171,9 +192,7 @@ def log_inactivity():
                 "inactivity": [],
             }
 
-            users.update_one(
-                {"_id": user["_id"]}, {"$push": {"sessions": new_session}}
-            )
+            users.update_one({"_id": user["_id"]}, {"$push": {"sessions": new_session}})
 
             return jsonify(
                 {
