@@ -79,6 +79,7 @@ def logout():
 
 
 # --- LOG VIDEO (merge keys instead of overwrite) ---
+# --- LOG VIDEO (merge keys + append speeds) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -97,6 +98,11 @@ def log_video():
     if not isinstance(keys, list):
         keys = [keys] if keys else []
 
+    # Always store speeds as list
+    speeds = data.get("speeds")
+    if not isinstance(speeds, list):
+        speeds = [speeds] if speeds else []
+
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
@@ -111,7 +117,8 @@ def log_video():
                 "sessions.$.videos.$[video].watched": watched,
                 "sessions.$.videos.$[video].status": status,
             },
-            "$addToSet": {"sessions.$.videos.$[video].keys": {"$each": keys}}
+            "$addToSet": {"sessions.$.videos.$[video].keys": {"$each": keys}},
+            "$push": {"sessions.$.videos.$[video].speeds": {"$each": speeds}},
         },
         array_filters=[{"video.videoId": video_id}]
     )
@@ -124,6 +131,7 @@ def log_video():
             "watched": watched,
             "status": status,
             "keys": keys,
+            "speeds": speeds,
         }
         users.update_one(
             {"sessions._id": oid},
@@ -138,8 +146,10 @@ def log_video():
         "watched": watched,
         "status": status,
         "keys": keys,
+        "speeds": speeds,
     }
     return jsonify({"success": True, "video": updated_video})
+
 
 
 # --- LOG INACTIVITY (push inactivity events into session) ---
