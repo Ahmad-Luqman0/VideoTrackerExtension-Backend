@@ -79,7 +79,7 @@ def logout():
 
 
 # --- LOG VIDEO (merge keys instead of overwrite) ---
-# --- LOG VIDEO (merge keys + append speeds) ---
+# --- LOG VIDEO (merge keys + speeds instead of overwrite) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -117,10 +117,12 @@ def log_video():
                 "sessions.$.videos.$[video].watched": watched,
                 "sessions.$.videos.$[video].status": status,
             },
-            "$addToSet": {"sessions.$.videos.$[video].keys": {"$each": keys}},
-            "$push": {"sessions.$.videos.$[video].speeds": {"$each": speeds}},
+            "$addToSet": {
+                "sessions.$.videos.$[video].keys": {"$each": keys},
+                "sessions.$.videos.$[video].speeds": {"$each": speeds},
+            },
         },
-        array_filters=[{"video.videoId": video_id}]
+        array_filters=[{"video.videoId": video_id}],
     )
 
     # If the video was not found in the session, push a new one
@@ -135,7 +137,7 @@ def log_video():
         }
         users.update_one(
             {"sessions._id": oid},
-            {"$push": {"sessions.$.videos": video_entry}}
+            {"$push": {"sessions.$.videos": video_entry}},
         )
         return jsonify({"success": True, "video": video_entry})
 
@@ -149,6 +151,7 @@ def log_video():
         "speeds": speeds,
     }
     return jsonify({"success": True, "video": updated_video})
+
 
 
 
