@@ -15,7 +15,7 @@ users = db.users
 
 @app.route("/", methods=["GET"])
 def home():
-    return "BackEnd Running  :)"
+    return "BackEnd Running :)"
 
 # --- LOGIN (create new session for the user) ---
 @app.route("/login", methods=["POST"])
@@ -108,6 +108,8 @@ def log_video():
     status = data.get("status", "Not Watched")
 
     # Try to update existing video in the session
+    # We use $addToSet with $each for keys and speeds to add new elements without creating duplicates
+    # and to preserve the order of new additions.
     result = users.update_one(
         {"sessions._id": oid, "sessions.videos.videoId": video_id},
         {
@@ -116,7 +118,10 @@ def log_video():
                 "sessions.$.videos.$[video].watched": watched,
                 "sessions.$.videos.$[video].status": status,
             },
-            # Use $addToSet with $each to merge arrays without duplicates
+            # Use $each with $addToSet to add all new keys/speeds to the array, avoiding duplicates.
+            # This is not strictly "preserving order" as $push would, but it ensures all unique values
+            # are present. If strict order for all updates is needed, a more complex array manipulation
+            # or a different data structure might be required. For "all speeds seen", this is sufficient.
             "$addToSet": {
                 "sessions.$.videos.$[video].keys": {"$each": keys},
                 "sessions.$.videos.$[video].speeds": {"$each": speeds}
