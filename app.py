@@ -79,7 +79,6 @@ def logout():
 
 
 # --- LOG VIDEO (merge keys instead of overwrite) ---
-# --- LOG VIDEO (merge keys + speeds instead of overwrite) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -98,11 +97,6 @@ def log_video():
     if not isinstance(keys, list):
         keys = [keys] if keys else []
 
-    # Always store speeds as list
-    speeds = data.get("speeds")
-    if not isinstance(speeds, list):
-        speeds = [speeds] if speeds else []
-
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
@@ -117,12 +111,9 @@ def log_video():
                 "sessions.$.videos.$[video].watched": watched,
                 "sessions.$.videos.$[video].status": status,
             },
-            "$addToSet": {
-                "sessions.$.videos.$[video].keys": {"$each": keys},
-                "sessions.$.videos.$[video].speeds": {"$each": speeds},
-            },
+            "$addToSet": {"sessions.$.videos.$[video].keys": {"$each": keys}}
         },
-        array_filters=[{"video.videoId": video_id}],
+        array_filters=[{"video.videoId": video_id}]
     )
 
     # If the video was not found in the session, push a new one
@@ -133,11 +124,10 @@ def log_video():
             "watched": watched,
             "status": status,
             "keys": keys,
-            "speeds": speeds,
         }
         users.update_one(
             {"sessions._id": oid},
-            {"$push": {"sessions.$.videos": video_entry}},
+            {"$push": {"sessions.$.videos": video_entry}}
         )
         return jsonify({"success": True, "video": video_entry})
 
@@ -148,11 +138,8 @@ def log_video():
         "watched": watched,
         "status": status,
         "keys": keys,
-        "speeds": speeds,
     }
     return jsonify({"success": True, "video": updated_video})
-
-
 
 
 # --- LOG INACTIVITY (push inactivity events into session) ---
