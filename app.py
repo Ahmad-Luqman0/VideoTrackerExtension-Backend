@@ -15,7 +15,7 @@ users = db.users
 
 @app.route("/", methods=["GET"])
 def home():
-    return "BackEnd Running :)"
+    return "BackEnd Running  :)"
 
 # --- LOGIN (create new session for the user) ---
 @app.route("/login", methods=["POST"])
@@ -78,7 +78,7 @@ def logout():
     )
 
 
-# --- LOG VIDEO (merge keys and speeds instead of overwrite) ---
+# --- LOG VIDEO (merge keys instead of overwrite) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -97,19 +97,12 @@ def log_video():
     if not isinstance(keys, list):
         keys = [keys] if keys else []
 
-    # Always store speeds as list
-    speeds = data.get("speeds")
-    if not isinstance(speeds, list):
-        speeds = [speeds] if speeds else []
-
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
     status = data.get("status", "Not Watched")
 
     # Try to update existing video in the session
-    # We use $addToSet with $each for keys and speeds to add new elements without creating duplicates
-    # and to preserve the order of new additions.
     result = users.update_one(
         {"sessions._id": oid, "sessions.videos.videoId": video_id},
         {
@@ -118,14 +111,7 @@ def log_video():
                 "sessions.$.videos.$[video].watched": watched,
                 "sessions.$.videos.$[video].status": status,
             },
-            # Use $each with $addToSet to add all new keys/speeds to the array, avoiding duplicates.
-            # This is not strictly "preserving order" as $push would, but it ensures all unique values
-            # are present. If strict order for all updates is needed, a more complex array manipulation
-            # or a different data structure might be required. For "all speeds seen", this is sufficient.
-            "$addToSet": {
-                "sessions.$.videos.$[video].keys": {"$each": keys},
-                "sessions.$.videos.$[video].speeds": {"$each": speeds}
-            }
+            "$addToSet": {"sessions.$.videos.$[video].keys": {"$each": keys}}
         },
         array_filters=[{"video.videoId": video_id}]
     )
@@ -138,7 +124,6 @@ def log_video():
             "watched": watched,
             "status": status,
             "keys": keys,
-            "speeds": speeds,  # Include speeds for new entries
         }
         users.update_one(
             {"sessions._id": oid},
@@ -146,10 +131,15 @@ def log_video():
         )
         return jsonify({"success": True, "video": video_entry})
 
-    # Return success, the video was updated
-    # Note: Retrieving the exact merged state would require another query,
-    # but for a simple acknowledgement, this is sufficient.
-    return jsonify({"success": True, "message": "Video updated successfully"})
+    # Return updated video
+    updated_video = {
+        "videoId": video_id,
+        "duration": duration,
+        "watched": watched,
+        "status": status,
+        "keys": keys,
+    }
+    return jsonify({"success": True, "video": updated_video})
 
 
 # --- LOG INACTIVITY (push inactivity events into session) ---
