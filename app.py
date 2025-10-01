@@ -80,7 +80,7 @@ def logout():
     )
 
 
-# --- LOG VIDEO (merge keys + speeds instead of overwrite) ---
+# --- LOG VIDEO (merge keys + speeds instead of overwrite, add loopTime) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -107,6 +107,7 @@ def log_video():
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
+    loop_time = int(data.get("loopTime", 0))   # <-- NEW
     status = data.get("status", "Not Watched")
 
     # Try to update existing video in the session
@@ -116,6 +117,7 @@ def log_video():
             "$set": {
                 "sessions.$.videos.$[video].duration": duration,
                 "sessions.$.videos.$[video].watched": watched,
+                "sessions.$.videos.$[video].loopTime": loop_time,  # <-- NEW
                 "sessions.$.videos.$[video].status": status,
             },
             "$addToSet": {
@@ -132,6 +134,7 @@ def log_video():
             "videoId": video_id,
             "duration": duration,
             "watched": watched,
+            "loopTime": loop_time,   # <-- NEW
             "status": status,
             "keys": keys,
             "speeds": speeds,
@@ -146,12 +149,12 @@ def log_video():
         "videoId": video_id,
         "duration": duration,
         "watched": watched,
+        "loopTime": loop_time,   
         "status": status,
         "keys": keys,
         "speeds": speeds,
     }
     return jsonify({"success": True, "video": updated_video})
-
 
 # --- LOG INACTIVITY (push inactivity events into session) ---
 @app.route("/log_inactivity", methods=["POST"])
