@@ -104,10 +104,10 @@ def log_video():
     if not isinstance(speeds, list):
         speeds = [speeds] if speeds else []
 
-    # Always store soundStates as list
-    sound_states = data.get("soundStates")
-    if not isinstance(sound_states, list):
-        sound_states = [sound_states] if sound_states else []
+    # Get sound muted state as simple boolean (yes/no)
+    sound_muted = data.get("soundMuted", False)  # Default to False (not muted)
+    # Convert to "yes" if muted, "no" if not muted
+    sound_muted_status = "yes" if sound_muted else "no"
 
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
@@ -124,11 +124,11 @@ def log_video():
                 "sessions.$.videos.$[video].watched": watched,
                 "sessions.$.videos.$[video].loopTime": loop_time,  # <-- NEW
                 "sessions.$.videos.$[video].status": status,
+                "sessions.$.videos.$[video].soundMuted": sound_muted_status,  # <-- NEW
             },
             "$addToSet": {
                 "sessions.$.videos.$[video].keys": {"$each": keys},
                 "sessions.$.videos.$[video].speeds": {"$each": speeds},
-                "sessions.$.videos.$[video].soundStates": {"$each": sound_states},
             },
         },
         array_filters=[{"video.videoId": video_id}],
@@ -144,7 +144,7 @@ def log_video():
             "status": status,
             "keys": keys,
             "speeds": speeds,
-            "soundStates": sound_states,
+            "soundMuted": sound_muted_status,  # <-- NEW
         }
         users.update_one(
             {"sessions._id": oid}, {"$push": {"sessions.$.videos": video_entry}}
@@ -160,7 +160,7 @@ def log_video():
         "status": status,
         "keys": keys,
         "speeds": speeds,
-        "soundStates": sound_states,
+        "soundMuted": sound_muted_status,
     }
     return jsonify({"success": True, "video": updated_video})
 
