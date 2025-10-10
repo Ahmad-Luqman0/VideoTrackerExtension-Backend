@@ -104,11 +104,6 @@ def log_video():
     if not isinstance(speeds, list):
         speeds = [speeds] if speeds else []
 
-    # Always store sound states as list
-    sound_states = data.get("soundStates")
-    if not isinstance(sound_states, list):
-        sound_states = [sound_states] if sound_states else []
-
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
@@ -128,7 +123,6 @@ def log_video():
             "$addToSet": {
                 "sessions.$.videos.$[video].keys": {"$each": keys},
                 "sessions.$.videos.$[video].speeds": {"$each": speeds},
-                "sessions.$.videos.$[video].soundStates": {"$each": sound_states},
             },
         },
         array_filters=[{"video.videoId": video_id}],
@@ -144,7 +138,6 @@ def log_video():
             "status": status,
             "keys": keys,
             "speeds": speeds,
-            "soundStates": sound_states,
         }
         users.update_one(
             {"sessions._id": oid}, {"$push": {"sessions.$.videos": video_entry}}
@@ -160,7 +153,6 @@ def log_video():
         "status": status,
         "keys": keys,
         "speeds": speeds,
-        "soundStates": sound_states,
     }
     return jsonify({"success": True, "video": updated_video})
 
