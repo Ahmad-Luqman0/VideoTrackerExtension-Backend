@@ -19,6 +19,36 @@ def home():
     return "BackEnd Running  :)"
 
 
+# --- REGISTER (create new user with duplicate prevention) ---
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+    
+    # Validate input
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username and password are required"}), 400
+    
+    # Check for duplicate username
+    existing_user = users.find_one({"username": username})
+    if existing_user:
+        return jsonify({"success": False, "error": "Username already exists"}), 409
+    
+    # Create new user
+    new_user = {
+        "username": username,
+        "password": password,
+        "sessions": []
+    }
+    
+    try:
+        result = users.insert_one(new_user)
+        return jsonify({"success": True, "user_id": str(result.inserted_id)})
+    except Exception as e:
+        return jsonify({"success": False, "error": "Failed to create user"}), 500
+
+
 # --- LOGIN (create new session for the user) ---
 @app.route("/login", methods=["POST"])
 def login():
