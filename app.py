@@ -4,6 +4,8 @@ from datetime import datetime
 import os
 from bson import ObjectId
 from flask_cors import CORS
+import re
+import secrets
 
 app = Flask(__name__)
 CORS(app)
@@ -12,6 +14,57 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client.test
 users = db.users
+
+
+def validate_username(username):
+    """
+    Validate username:
+    - 8-15 characters
+    - At least one number
+    - At least one special character (only . - _ allowed)
+    - Only letters, numbers, and . - _ allowed
+    """
+    if not username or len(username) < 8 or len(username) > 15:
+        return False, "Username must be 8-15 characters long"
+
+    if not re.search(r"\d", username):
+        return False, "Username must contain at least one number"
+
+    if not re.search(r"[.\-_]", username):
+        return False, "Username must contain at least one special character (. - _)"
+
+    if not re.match(r"^[a-zA-Z0-9.\-_]+$", username):
+        return False, "Username can only contain letters, numbers, and . - _"
+
+    return True, "Valid username"
+
+
+def validate_password(password):
+    """
+    Validate password:
+    - At least 8 characters
+    - At least one uppercase letter
+    - At least one number
+    - At least one special character
+    """
+    if not password or len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+
+    if not re.search(r"[A-Z]", password):
+        return False, "Password must contain at least one uppercase letter"
+
+    if not re.search(r"\d", password):
+        return False, "Password must contain at least one number"
+
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/\';`~]', password):
+        return False, "Password must contain at least one special character"
+
+    return True, "Valid password"
+
+
+def generate_session_id():
+    """Generate a secure random session ID"""
+    return secrets.token_urlsafe(32)
 
 
 @app.route("/", methods=["GET"])
@@ -25,23 +78,32 @@ def register():
     data = request.json
     username = data.get("username")
     password = data.get("password")
-    
+
     # Validate input
     if not username or not password:
-        return jsonify({"success": False, "error": "Username and password are required"}), 400
-    
+        return (
+            jsonify({"success": False, "error": "Username and password are required"}),
+            400,
+        )
+
+    # Validate username format
+    is_valid, error_msg = validate_username(username)
+    if not is_valid:
+        return jsonify({"success": False, "error": error_msg}), 400
+
+    # Validate password format
+    is_valid, error_msg = validate_password(password)
+    if not is_valid:
+        return jsonify({"success": False, "error": error_msg}), 400
+
     # Check for duplicate username
     existing_user = users.find_one({"username": username})
     if existing_user:
         return jsonify({"success": False, "error": "Username already exists"}), 409
-    
+
     # Create new user
-    new_user = {
-        "username": username,
-        "password": password,
-        "sessions": []
-    }
-    
+    new_user = {"username": username, "password": password, "sessions": []}
+
     try:
         result = users.insert_one(new_user)
         return jsonify({"success": True, "user_id": str(result.inserted_id)})
@@ -60,9 +122,10 @@ def login():
     if not user:
         return jsonify({"success": False}), 401
 
-    # build a new session
+    # Build a new session with secure random session ID
+    session_id = generate_session_id()
     session = {
-        "_id": ObjectId(),  # unique session ID
+        "_id": session_id,  # Use secure random string instead of ObjectId
         "starttime": datetime.utcnow(),
         "endtime": None,
         "duration": None,
@@ -72,7 +135,7 @@ def login():
 
     users.update_one({"_id": user["_id"]}, {"$push": {"sessions": session}})
 
-    return jsonify({"success": True, "session_id": str(session["_id"])})
+    return jsonify({"success": True, "session_id": session_id})
 
 
 # --- LOGOUT (set endtime + duration on last session) ---
@@ -83,13 +146,9 @@ def logout():
     if not session_id:
         return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    try:
-        oid = ObjectId(session_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid session_id"}), 400
-
+    # Session ID is now a string, no need to convert to ObjectId
     # get session starttime first
-    user = users.find_one({"sessions._id": oid}, {"sessions.$": 1})
+    user = users.find_one({"sessions._id": session_id}, {"sessions.$": 1})
     if not user or "sessions" not in user or len(user["sessions"]) == 0:
         return jsonify({"success": False, "error": "Session not found"}), 404
 
@@ -101,7 +160,7 @@ def logout():
         duration = (endtime - starttime).total_seconds()
 
     users.update_one(
-        {"sessions._id": oid},
+        {"sessions._id": session_id},
         {"$set": {"sessions.$.endtime": endtime, "sessions.$.duration": duration}},
     )
 
@@ -119,10 +178,7 @@ def log_video():
     if not session_id:
         return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    try:
-        oid = ObjectId(session_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid session_id"}), 400
+    # Session ID is now a string, no need to convert to ObjectId
 
     # Always store keys as list
     keys = data.get("keys")
@@ -147,7 +203,7 @@ def log_video():
 
     # Try to update existing video in the session
     result = users.update_one(
-        {"sessions._id": oid, "sessions.videos.videoId": video_id},
+        {"sessions._id": session_id, "sessions.videos.videoId": video_id},
         {
             "$set": {
                 "sessions.$.videos.$[video].duration": duration,
@@ -177,7 +233,7 @@ def log_video():
             "soundMuted": sound_muted_status,  # <-- NEW
         }
         users.update_one(
-            {"sessions._id": oid}, {"$push": {"sessions.$.videos": video_entry}}
+            {"sessions._id": session_id}, {"$push": {"sessions.$.videos": video_entry}}
         )
         return jsonify({"success": True, "video": video_entry})
 
@@ -203,10 +259,7 @@ def log_inactivity():
     if not session_id:
         return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    try:
-        oid = ObjectId(session_id)
-    except Exception:
-        return jsonify({"success": False, "error": "Invalid session_id"}), 400
+    # Session ID is now a string, no need to convert to ObjectId
 
     inactivity_entry = {
         "starttime": data.get("starttime"),
@@ -217,7 +270,8 @@ def log_inactivity():
 
     # Push inactivity log
     result = users.update_one(
-        {"sessions._id": oid}, {"$push": {"sessions.$.inactivity": inactivity_entry}}
+        {"sessions._id": session_id},
+        {"$push": {"sessions.$.inactivity": inactivity_entry}},
     )
 
     if result.modified_count == 0:
@@ -229,9 +283,9 @@ def log_inactivity():
     except Exception:
         inactivity_duration = 0
 
-    if inactivity_duration > 180:  # more than 3 minutes
+    if inactivity_duration > 180:
         # End current session
-        user = users.find_one({"sessions._id": oid}, {"sessions.$": 1, "_id": 1})
+        user = users.find_one({"sessions._id": session_id}, {"sessions.$": 1, "_id": 1})
         if user and "sessions" in user and len(user["sessions"]) > 0:
             session = user["sessions"][0]
             starttime = session.get("starttime")
@@ -241,7 +295,7 @@ def log_inactivity():
                 duration = (endtime - starttime).total_seconds()
 
             users.update_one(
-                {"sessions._id": oid},
+                {"sessions._id": session_id},
                 {
                     "$set": {
                         "sessions.$.endtime": endtime,
@@ -250,9 +304,10 @@ def log_inactivity():
                 },
             )
 
-            # Create a new session (start after inactivity ends)
+            # Create a new session (start after inactivity ends) with secure random ID
+            new_session_id = generate_session_id()
             new_session = {
-                "_id": ObjectId(),
+                "_id": new_session_id,
                 "starttime": endtime,
                 "endtime": None,
                 "duration": None,
@@ -267,7 +322,7 @@ def log_inactivity():
                     "success": True,
                     "inactivity": inactivity_entry,
                     "action": "session_split",
-                    "new_session_id": str(new_session["_id"]),
+                    "new_session_id": new_session_id,
                 }
             )
 
