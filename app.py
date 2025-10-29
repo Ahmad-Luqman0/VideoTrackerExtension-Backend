@@ -169,7 +169,7 @@ def logout():
     )
 
 
-# --- LOG VIDEO (merge keys + speeds instead of overwrite, add loopTime) ---
+# --- LOG VIDEO (simplified: store duration, watched, status, soundMuted) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -180,16 +180,6 @@ def log_video():
 
     # Session ID is now a string, no need to convert to ObjectId
 
-    # Always store keys as list
-    keys = data.get("keys")
-    if not isinstance(keys, list):
-        keys = [keys] if keys else []
-
-    # Always store speeds as list
-    speeds = data.get("speeds")
-    if not isinstance(speeds, list):
-        speeds = [speeds] if speeds else []
-
     # Get sound muted state as simple boolean (yes/no)
     sound_muted = data.get("soundMuted", False)  # Default to False (not muted)
     # Convert to "yes" if muted, "no" if not muted
@@ -198,7 +188,6 @@ def log_video():
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
-    loop_time = int(data.get("loopTime", 0))  # <-- NEW
     status = data.get("status", "Not Watched")
 
     # Try to update existing video in the session
@@ -208,14 +197,9 @@ def log_video():
             "$set": {
                 "sessions.$.videos.$[video].duration": duration,
                 "sessions.$.videos.$[video].watched": watched,
-                "sessions.$.videos.$[video].loopTime": loop_time,  # <-- NEW
                 "sessions.$.videos.$[video].status": status,
-                "sessions.$.videos.$[video].soundMuted": sound_muted_status,  # <-- NEW
-            },
-            "$addToSet": {
-                "sessions.$.videos.$[video].keys": {"$each": keys},
-                "sessions.$.videos.$[video].speeds": {"$each": speeds},
-            },
+                "sessions.$.videos.$[video].soundMuted": sound_muted_status,
+            }
         },
         array_filters=[{"video.videoId": video_id}],
     )
@@ -226,11 +210,8 @@ def log_video():
             "videoId": video_id,
             "duration": duration,
             "watched": watched,
-            "loopTime": loop_time,  # <-- NEW
             "status": status,
-            "keys": keys,
-            "speeds": speeds,
-            "soundMuted": sound_muted_status,  # <-- NEW
+            "soundMuted": sound_muted_status,
         }
         users.update_one(
             {"sessions._id": session_id}, {"$push": {"sessions.$.videos": video_entry}}
@@ -242,10 +223,7 @@ def log_video():
         "videoId": video_id,
         "duration": duration,
         "watched": watched,
-        "loopTime": loop_time,
         "status": status,
-        "keys": keys,
-        "speeds": speeds,
         "soundMuted": sound_muted_status,
     }
     return jsonify({"success": True, "video": updated_video})
