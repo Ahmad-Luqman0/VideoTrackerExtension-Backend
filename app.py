@@ -169,7 +169,7 @@ def logout():
     )
 
 
-# --- LOG VIDEO (merge keys + speeds instead of overwrite, add loopTime) ---
+# --- LOG VIDEO (store only required fields) ---
 @app.route("/log_video", methods=["POST"])
 def log_video():
     data = request.json
@@ -178,27 +178,14 @@ def log_video():
     if not session_id:
         return jsonify({"success": False, "error": "Missing session_id"}), 400
 
-    # Session ID is now a string, no need to convert to ObjectId
-
     # Always store keys as list
     keys = data.get("keys")
     if not isinstance(keys, list):
         keys = [keys] if keys else []
 
-    # Always store speeds as list
-    speeds = data.get("speeds")
-    if not isinstance(speeds, list):
-        speeds = [speeds] if speeds else []
-
-    # Get sound muted state as simple boolean (yes/no)
-    sound_muted = data.get("soundMuted", False)  # Default to False (not muted)
-    # Convert to "yes" if muted, "no" if not muted
-    sound_muted_status = "yes" if sound_muted else "no"
-
     video_id = data.get("videoId")
     duration = float(data.get("duration", 0))
     watched = int(data.get("watched", 0))
-    loop_time = int(data.get("loopTime", 0))  # <-- NEW
     status = data.get("status", "Not Watched")
 
     # Try to update existing video in the session
@@ -208,13 +195,10 @@ def log_video():
             "$set": {
                 "sessions.$.videos.$[video].duration": duration,
                 "sessions.$.videos.$[video].watched": watched,
-                "sessions.$.videos.$[video].loopTime": loop_time,  # <-- NEW
                 "sessions.$.videos.$[video].status": status,
-                "sessions.$.videos.$[video].soundMuted": sound_muted_status,  # <-- NEW
             },
             "$addToSet": {
                 "sessions.$.videos.$[video].keys": {"$each": keys},
-                "sessions.$.videos.$[video].speeds": {"$each": speeds},
             },
         },
         array_filters=[{"video.videoId": video_id}],
@@ -226,11 +210,8 @@ def log_video():
             "videoId": video_id,
             "duration": duration,
             "watched": watched,
-            "loopTime": loop_time,  # <-- NEW
             "status": status,
             "keys": keys,
-            "speeds": speeds,
-            "soundMuted": sound_muted_status,  # <-- NEW
         }
         users.update_one(
             {"sessions._id": session_id}, {"$push": {"sessions.$.videos": video_entry}}
@@ -242,91 +223,10 @@ def log_video():
         "videoId": video_id,
         "duration": duration,
         "watched": watched,
-        "loopTime": loop_time,
         "status": status,
         "keys": keys,
-        "speeds": speeds,
-        "soundMuted": sound_muted_status,
     }
     return jsonify({"success": True, "video": updated_video})
-
-
-# --- LOG INACTIVITY (push inactivity events into session) ---
-@app.route("/log_inactivity", methods=["POST"])
-def log_inactivity():
-    data = request.json
-    session_id = data.get("session_id")
-    if not session_id:
-        return jsonify({"success": False, "error": "Missing session_id"}), 400
-
-    # Session ID is now a string, no need to convert to ObjectId
-
-    inactivity_entry = {
-        "starttime": data.get("starttime"),
-        "endtime": data.get("endtime"),
-        "duration": data.get("duration"),
-        "type": data.get("type"),
-    }
-
-    # Push inactivity log
-    result = users.update_one(
-        {"sessions._id": session_id},
-        {"$push": {"sessions.$.inactivity": inactivity_entry}},
-    )
-
-    if result.modified_count == 0:
-        return jsonify({"success": False, "error": "Session not found"}), 404
-
-    # --- Check inactivity duration ---
-    try:
-        inactivity_duration = float(inactivity_entry.get("duration", 0))
-    except Exception:
-        inactivity_duration = 0
-
-    if inactivity_duration > 180:
-        # End current session
-        user = users.find_one({"sessions._id": session_id}, {"sessions.$": 1, "_id": 1})
-        if user and "sessions" in user and len(user["sessions"]) > 0:
-            session = user["sessions"][0]
-            starttime = session.get("starttime")
-            endtime = datetime.utcnow()
-            duration = None
-            if starttime:
-                duration = (endtime - starttime).total_seconds()
-
-            users.update_one(
-                {"sessions._id": session_id},
-                {
-                    "$set": {
-                        "sessions.$.endtime": endtime,
-                        "sessions.$.duration": duration,
-                    }
-                },
-            )
-
-            # Create a new session (start after inactivity ends) with secure random ID
-            new_session_id = generate_session_id()
-            new_session = {
-                "_id": new_session_id,
-                "starttime": endtime,
-                "endtime": None,
-                "duration": None,
-                "videos": [],
-                "inactivity": [],
-            }
-
-            users.update_one({"_id": user["_id"]}, {"$push": {"sessions": new_session}})
-
-            return jsonify(
-                {
-                    "success": True,
-                    "inactivity": inactivity_entry,
-                    "action": "session_split",
-                    "new_session_id": new_session_id,
-                }
-            )
-
-    return jsonify({"success": True, "inactivity": inactivity_entry})
 
 
 if __name__ == "__main__":
